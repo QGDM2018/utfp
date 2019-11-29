@@ -1,0 +1,2 @@
+class FeatureEn:
+    pass
