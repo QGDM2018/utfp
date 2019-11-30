@@ -1,5 +1,6 @@
-class Evaluator:
-    pass
+class ARMA:
+    def fit(self,X,y=None):
+        pass
 
-class Drawer:
-    pass
+    def predict(self,X):
+        pass
