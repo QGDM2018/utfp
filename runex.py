@@ -7,9 +7,11 @@ plt.rcParams['axes.unicode_minus'] = False
 day = 3
 prp = PreProcessor()    # 数据管理器
 # for i in range(1,24):
-#     dfFlow,dFlow =prp.get_flow(i)	# 原始车流数据表，车流量时序数据 n
-dfFlow,dFlow =prp.get_roadFlow(day)	# 原始车流数据表，车流量时序数据 n
+#     dfFlow,dFlow =prp.get_roadFlow(i)	# 原始车流数据表，车流量时序数据 n
+# dfFlow,dFlow =prp.get_roadFlow(day)	# 原始车流数据表，车流量时序数据 n
+# dfFlow,dFlow =prp.get_timeFlow(day)	# 原始车流数据表，车流量时序数据 n
 
+roadFlow = prp.get_roadFlow_total(100001)
 # *****绘图示例
 # key = list(dFlow.keys())[0]
 # seFolw =dFlow[key]
