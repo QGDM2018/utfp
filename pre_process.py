@@ -47,8 +47,13 @@ class PreProcessor:
             dFlow[road] = pd.Series(lFlow,index=tgroup.groups.keys())
         return dFlow
 
-    def get_flow(self,i) -> object:
-        '''返回转化后的文件'''
+    def get_roadFlow(self,i) -> object:
+        '''获取单个路口各个时段车流量数据
+        :param i:天数
+        :return:
+            dfFlow：pd.DataFrame 原始车流数据表
+            dFlow: {crossroadID:pd.Series} 车流量时序数据
+        '''
         try:
             with open('data/tmp/flow_'+i,'wb') as f:
                 dFlow = pickle.load(f)
@@ -57,6 +62,9 @@ class PreProcessor:
             dfFlow,dFlow = self.load_flow(i)
         return dfFlow,dFlow
 
-
-
-    # def
+    def get_timeFlow(self,i):
+        '''获取单个时段各个路口车流量数据
+        :param i:
+        :return:
+        '''
+        return
