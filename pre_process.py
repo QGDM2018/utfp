@@ -11,7 +11,7 @@ def tZoneMode(t,n):
     # 对分钟取整
     return t - timedelta(minutes=t.minute%n,seconds=t.second)
 
-def saving():
+def saving(prp):
     first = [100115, 100245, 100246, 100374, 100249, 100003, 100004, 100397, 100019, 100020, 100285, 100159, 100287,
              100288, 100164, 100041, 100300, 100434, 100179, 100180, 100053, 100183, 100315, 100316, 100061, 100193,
              100066, 100451, 100069, 100200, 100329, 100457, 100340, 100343, 100217]
@@ -25,7 +25,10 @@ def saving():
     for r in sPredRoad:
         vs = mapping.get(r)
         if vs is not None:
-            predMapping[r] = vs[0]
+            for v in vs:
+                if v in prp.buffer['sCrossroadID']:
+                    predMapping[r] = vs[0]
+                    break
         # else:
         #     print(r)
     return predMapping

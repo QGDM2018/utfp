@@ -10,7 +10,7 @@ def done():
     # ******载入数据******
     day = 3
     prp = PreProcessor()  # 数据管理器
-    sPredRoad, mapping = saving()
+    sPredRoad, mapping = saving(prp)
     # for i in range(1,24):
     #     dfFlow,dFlow =prp.get_roadFlow(i)	# 原始车流数据表，车流量时序数据 n
     # dfFlow,dFlow =prp.get_roadFlow(day)	# 原始车流数据表，车流量时序数据 n
@@ -41,4 +41,4 @@ def done():
 if __name__ == '__main__':
     day = 3
     prp = PreProcessor()  # 数据管理器
-    predMapping = saving()
+    predMapping = saving(prp)
