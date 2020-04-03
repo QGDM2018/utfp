@@ -105,14 +105,18 @@ class PreProcessor:
             for flow_lst in pool.map(self.cal_flow, path_dct['day_list'][self.term]):
                 handler.writerows(flow_lst)
 
-    def get_timeflow_by_day(self, i):
-        '''获取某天单个时段各个路口车流量数据
+    def get_timeflow(self):
+        '''获取单个时段各个路口车流量数据
         :param i:
         :return: dfFlow: 原始数据
                 dFlow: { t : pd.Series([road1_flow, road2_flow])}
         '''
-        flow_dct = {}  #
-        return flow_dct
+        flow_data = self.load_buffer()
+        if self.term:
+            flow_data.set_index(['timestamp', 'direction', 'crossroadID'], inplace=True)
+            return flow_data.unstack()
+        # flow_dct = {}  #
+        # return flow_dct
 
     def get_roadflow_by_day(self, i):
         '''获取单个路口各个时段车流量数据
@@ -148,6 +152,9 @@ class PreProcessor:
         flow_data = self.load_buffer()
         roadflow_df = flow_data[flow_data['crossroadID'] == roadid]
         return pd.Series(roadflow_df['flow'].values, index=roadflow_df['timestamp'])
+
+    def get_submit(self):
+        return pd.read_csv(f'./data/submit/{self.term}_submit.csv')
 
     def roadid_nums(self):
         '''查看各天的记录roadid数量'''
@@ -251,3 +258,18 @@ def get_trainroad_adjoin(premap, map):
             except IndexError as e:
                 continue
     return train_mapping  # 得到训练集的卡口
+
+
+def get_adj_map():
+    adj_map = {}
+    net_df = pd.read_csv('data/first/trainCrossroadFlow/roadnet.csv')
+    for h, t in net_df.values:
+        if h in adj_map:
+            adj_map[h].add(t)
+        else:
+            adj_map[h] = {t}
+        if t in adj_map:
+            adj_map[t].add(h)
+        else:
+            adj_map[t] = {h}
+    return adj_map

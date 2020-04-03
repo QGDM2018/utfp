@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
-# def s_t_relevancy(dFlow,i,j,d):
-#     ''''''
+from pre_process import get_adj_map, PreProcessor, freeze_support, Pool
 import tqdm
 import time
 from sklearn.metrics.pairwise import cosine_similarity
@@ -9,20 +8,9 @@ from pre_process import get_trainroad_adjoin, get_testroad_adjoin
 
 
 class FeatureEn:
-    def __init__(self, prp):
-        adj_map = {}
-        net_df = pd.read_csv('data/first/trainCrossroadFlow/roadnet.csv')
-        for h, t in net_df.values:
-            if h in adj_map:
-                adj_map[h].add(t)
-            else:
-                adj_map[h] = {t}
-            if t in adj_map:
-                adj_map[t].add(h)
-            else:
-                adj_map[t] = {h}
-        self.adj_map = adj_map      # 对象与路网绑定
-        self.prp = prp  # 数据管理器
+    def __init__(self, term='first'):
+        self.adj_map = get_adj_map()      # 对象与路网绑定
+        self.prp = PreProcessor(term)  # 数据管理器
 
     def extract_relevancy(self, roadId, d, dFlow):
         '''抽取车流量表相关度，作为训练集
@@ -38,20 +26,42 @@ class FeatureEn:
         X = np.zeros((d, len(lAdjNode))) # 相关系数矩阵,问题**每个路口训练一个模型
         return X
 
-    def extract_adjoin(self):
-        '''某时段内路口流量为特征，其邻接路口为目标值'''
-        data = {}
-        for road in tqdm.tqdm(self.prp.buffer['sCrossroadID']):
-            data[road] = self.prp.get_roadflow_by_road(road)
-        columns = ['x', 'y']
-        x, y = [], []
-        for node, adj_lst in self.adj_map.items():
-            node_series = data[node]
-            for adjoin in adj_lst:
-                adj_series = data[adjoin]
-                same = node_series.index & adj_series.index
-                x.extend(node_series)
-        return data
+    def extract_adjoin_by_col(self):
+        '''某时段内路口流量为特征，其邻接路口为目标值,构建训练集和测试集（按列遍历，很快）'''
+        adj_map = {}  # {(flow, road): [{flow, roadID)}}
+        for road, adjoins in self.adj_map.items():
+            adj_map[('flow', int(road))] = set(('flow', int(r)) for r in adjoins)
+        data_dct = {'timestamp': [],
+                    'crossroadID': [],
+                    'mean_flow': [],
+                    'flow': []}  # timestamp, crossraodID, x, y
+        flow_data = self.prp.load_buffer()
+        flow_data.set_index(['timestamp', 'crossroadID'], inplace=True)
+        flow_data = flow_data.unstack()
+        flow_data.drop(columns=flow_data.columns ^ (flow_data.columns & adj_map.keys()), inplace=True)
+        for key, values in adj_map.items():  # 缩小邻接表， 邻接卡口仅保留数据集出现的
+            adj_map[key] = flow_data.columns & values
+        for col in flow_data.columns:
+            flow_data_nn = flow_data[flow_data[col].notna()]  # 去除空值
+            if len(adj_map[col]):
+                mean_flow = flow_data_nn[adj_map[col]].mean(axis=1).dropna()
+                data_dct['mean_flow'].extend(mean_flow)
+                data_dct['timestamp'].extend(mean_flow.index)
+                data_dct['crossroadID'].extend(col[1] for _ in range(len(mean_flow)))
+                data_dct['flow'].extend(flow_data_nn.loc[mean_flow.index, col])
+        # 获取测试集合
+        test_df = self.prp.get_submit()[['crossroadID', 'timeBegin', 'date']]
+        test_df['timestamp'] = test_df[['timeBegin', 'date']].apply(
+            lambda x: f'2019-08-{x["date"]} {x["timeBegin"]}:00', axis=1)
+        ts_index = test_df['timestamp'].unique()
+        for road, indexes in test_df.groupby('crossroadID'):
+            if ('flow', road) in adj_map:
+                return ts_index, flow_data
+                test_df.loc[indexes, 'mean_flow'] = flow_data.loc[ts_index, adj_map[('flow', road)]].mean(axis=1)
+            else:
+                test_df.loc[indexes, 'mean_flow'] = list(0 for _ in range(len(indexes)))
+        # 邻接关系
+        return pd.DataFrame(data_dct), test_df
 
     def similarity_matrix(self):
         '''

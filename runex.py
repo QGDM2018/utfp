@@ -52,6 +52,7 @@ def ap(f):
     print(center_id, id_type)
     return id_type, center_id
 
+
 def regression_ex(term='final'):
     keylst = [
         100115, 100245, 100246, 100374, 100003, 100004, 100020, 100285, 100159, 100287, 100288, 100164, 100300, 100179,
@@ -71,6 +72,26 @@ def regression_ex(term='final'):
     test_y = lr.predict(test_x.values)
     # print(test_y)
     return test_y
+
+
+def regression_ex_l(term='first'):
+    from sklearn.model_selection import train_test_split
+    from sklearn.linear_model import LinearRegression
+    from sklearn.metrics import mean_squared_error, r2_score
+    fe = FeatureEn(term)
+    data = pd.DataFrame(fe.extract_adjoin_by_col())
+    r2_rst = {}
+    for road, groups in data.groupby('crossroadID'):
+        X_train, X_test, y_train, y_test = train_test_split(groups[['mean_flow']], groups['flow'], test_size=.33)
+        lr = LinearRegression()
+        lr.fit(X_train, y_train)
+        r2_rst[road] = r2_score(y_test, lr.predict(X_test))
+    return r2_rst
+    # 对整个数据集进行回归
+
+    # 对单个路口进行回归
+
+    # return a
 
 
 if __name__ == '__main__':
