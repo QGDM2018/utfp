@@ -35,3 +35,10 @@ direction, laneID, timestamp, crossroadID, vehicleID
 timestamp, crossroadID, flow  # 初赛
 direction, timestamp, crossroadID, flow  # 复赛
 ```
+
+### 接口
+```python
+# 若报错则先确认data目录结构
+# 再调用PreProcessor('final').dump_buffer()缓存数据
+flow_df = PreProcessor('final').get_timeflow() 
+```

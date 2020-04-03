@@ -69,7 +69,7 @@ class PreProcessor:
 
     def load_buffer(self):
         if self.flow_data is None:
-            self.flow_data = pd.read_csv(f'./data/{self.term}_flow_data.csv')  # 若保存则需调用dump_buffer
+            self.flow_data = pd.read_csv(f'./data/{self.term}_flow_data.csv')  # 若报错则先确认data目录结构，再调用dump_buffer
         return self.flow_data
 
     def load_train(self):

@@ -97,15 +97,7 @@ def regression_ex_l(term='first'):
 if __name__ == '__main__':
     term = 'final'  # 初赛:first；复赛：final
     # term = 'first'  # 初赛:first；复赛：final
-    prp = PreProcessor(term)  # 数据管理器
-    # train_x, train_y, test_x = prp.load_traindata()
     # arma_ex(term)  # 时序模型
-    fe = FeatureEn(prp)
-    # fe.get_train_data()
-    # keylst = fe.get_text_data()
-    # print(keylst)
-    # ap(fe)
-    regression_ex(term)
 
 
 
