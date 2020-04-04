@@ -98,7 +98,7 @@ if __name__ == '__main__':
     term = 'final'  # 初赛:first；复赛：final
     # term = 'first'  # 初赛:first；复赛：final
     # arma_ex(term)  # 时序模型
-
+    a = FeatureEn(term).extract_adjoin_by_col()
 
 
 

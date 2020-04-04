@@ -28,15 +28,21 @@ class FeatureEn:
 
     def extract_adjoin_by_col(self):
         '''某时段内路口流量为特征，其邻接路口为目标值,构建训练集和测试集（按列遍历，很快）'''
+        # 先提取训练集
         adj_map = {}  # {(flow, road): [{flow, roadID)}}
-        for road, adjoins in self.adj_map.items():
-            adj_map[('flow', int(road))] = set(('flow', int(r)) for r in adjoins)
         data_dct = {'timestamp': [],
                     'crossroadID': [],
                     'mean_flow': [],
-                    'flow': []}  # timestamp, crossraodID, x, y
+                    'flow': []}
+
+        for road, adjoins in self.adj_map.items():
+            adj_map[('flow', int(road))] = set(('flow', int(r)) for r in adjoins)
         flow_data = self.prp.load_buffer()
-        flow_data.set_index(['timestamp', 'crossroadID'], inplace=True)
+        if self.prp.term:  # 复赛情况
+            data_dct['direction'] = []
+            flow_data.set_index(['timestamp', 'direction', 'crossroadID'], inplace=True)
+        else:
+            flow_data.set_index(['timestamp', 'crossroadID'], inplace=True)
         flow_data = flow_data.unstack()
         flow_data.drop(columns=flow_data.columns ^ (flow_data.columns & adj_map.keys()), inplace=True)
         for key, values in adj_map.items():  # 缩小邻接表， 邻接卡口仅保留数据集出现的
@@ -45,15 +51,29 @@ class FeatureEn:
             flow_data_nn = flow_data[flow_data[col].notna()]  # 去除空值
             if len(adj_map[col]):
                 mean_flow = flow_data_nn[adj_map[col]].mean(axis=1).dropna()
-                data_dct['mean_flow'].extend(mean_flow)
-                data_dct['timestamp'].extend(mean_flow.index)
                 data_dct['crossroadID'].extend(col[1] for _ in range(len(mean_flow)))
+                data_dct['mean_flow'].extend(mean_flow)
                 data_dct['flow'].extend(flow_data_nn.loc[mean_flow.index, col])
+                if self.prp.term:  # 复赛情况
+                    for ts, dire in mean_flow.index:
+                        data_dct['direction'].append(dire)
+                        data_dct['timestamp'].append(ts)
+                else:
+                    data_dct['timestamp'].extend(mean_flow.index)
         # 获取测试集合
-        test_df = self.prp.get_submit()[['crossroadID', 'timeBegin', 'date']]
-        test_df['timestamp'] = test_df[['timeBegin', 'date']].apply(
-            lambda x: f'2019-08-{x["date"]} {x["timeBegin"]}:00', axis=1)
+        if self.prp.term:
+            test_df = self.prp.get_submit()[['crossroadID', 'direction', 'timeBegin', 'date']]
+            test_df['timestamp'] = test_df[['timeBegin', 'date']].apply(
+                lambda x: f'2019-{x["date"]} {x["timeBegin"].rjust(5, "0")}:00', axis=1)
+            test_df.set_index(['timestamp', 'direction'], inplace=True)
+        else:
+            test_df = self.prp.get_submit()[['crossroadID', 'timeBegin', 'date']]
+            test_df['timestamp'] = test_df[['timeBegin', 'date']].apply(
+                lambda x: f'2019-08-{x["date"]} {x["timeBegin"].rjust(5, "0")}:00', axis=1)
+            test_df.set_index('timestamp', inplace=True)
+        return test_df, flow_data
         ts_index = test_df['timestamp'].unique()
+        return ts_index, flow_data.index
         for road, indexes in test_df.groupby('crossroadID'):
             if ('flow', road) in adj_map:
                 return ts_index, flow_data
