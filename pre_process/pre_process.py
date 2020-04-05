@@ -51,8 +51,8 @@ class PreProcessor:
 
     def __del__(self):
         # 保存缓存数据
-        # with open(f'./data/{self.term}_buffer.json', 'w', encoding='utf-8') as f:
-        json.dump(self.buffer, self.f)
+        with open(f'./data/{self.term}_buffer.json', 'w', encoding='utf-8') as f:
+            json.dump(self.buffer, f)
 
     def load_data(self, i):
         '''从文件夹中载入csv表格'''

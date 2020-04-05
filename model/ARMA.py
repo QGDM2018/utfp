@@ -1,4 +1,4 @@
-from pre_process import PreProcessor
+from pre_process.pre_process import PreProcessor
 import pre_process
 import matplotlib.pyplot as plt
 plt.rcParams['font.sans-serif'] = ['Simhei']

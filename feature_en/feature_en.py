@@ -1,10 +1,11 @@
 import numpy as np
 import pandas as pd
-from pre_process import get_adj_map, PreProcessor, freeze_support, Pool
+from pre_process.pre_process import get_adj_map, PreProcessor, freeze_support, Pool
+import datetime
 import tqdm
 import time
 from sklearn.metrics.pairwise import cosine_similarity
-from pre_process import get_trainroad_adjoin, get_testroad_adjoin
+from pre_process.pre_process import get_trainroad_adjoin, get_testroad_adjoin
 
 
 class FeatureEn:
@@ -28,38 +29,64 @@ class FeatureEn:
 
     def extract_adjoin_by_col(self):
         '''某时段内路口流量为特征，其邻接路口为目标值,构建训练集和测试集（按列遍历，很快）'''
-        # 先提取训练集
-        adj_map = {}  # {(flow, road): [{flow, roadID)}}
-        data_dct = {'timestamp': [],
-                    'crossroadID': [],
-                    'mean_flow': [],
-                    'flow': []}
-
-        for road, adjoins in self.adj_map.items():
-            adj_map[('flow', int(road))] = set(('flow', int(r)) for r in adjoins)
+        # 读取数据集, 构建邻接表
         flow_data = self.prp.load_buffer()
+        road_set = set(flow_data['crossroadID'])
         if self.prp.term:  # 复赛情况
-            data_dct['direction'] = []
-            flow_data.set_index(['timestamp', 'direction', 'crossroadID'], inplace=True)
+            # 构建邻接表
+            road_direction_dct = {}  # 用于构建邻接表
+            for road in road_set:
+                road_direction_dct[road] = flow_data['direction'][flow_data['crossroadID'] == road].unique()
+            adj_map = {}  # {road: {'adjoin': [('flow', 'roadID', 'direction')], 'self':[]}}
+            for road in road_set:
+                adjoin_set = set(self.adj_map[road]) & road_set
+                adj_map[road] = []
+                for adjoin in adjoin_set:
+                    adj_map[road].extend(('flow', dire, road) for dire in road_direction_dct[adjoin])
+            flow_data.set_index(['timestamp', 'crossroadID', 'direction'], inplace=True)
+            flow_data = flow_data.unstack().unstack()  # 重建列的索引
+            # flow_data.drop(columns=flow_data.columns ^ (flow_data.columns & adj_map.keys()), inplace=True)
+            train_index = flow_data.index < '2019-09-22 07:00:00'
+            train_flow = flow_data[train_index]  # 划分数据集, 训练集
+            test_df = flow_data[~train_index]  # 测试集
+            # 根据邻接表提取 训练集(X, direction, flow)
+            train_x_index = train_flow.index[train_flow.index < '2019-09-21 18:30:00']
+            train_y_index = (pd.to_datetime(train_x_index) + datetime.timedelta(minutes=30)
+                             ).map(lambda x: str(x)) & flow_data.index
+            train_flow_x = train_flow.loc[train_x_index]
+            train_flow_y = train_flow.loc[train_y_index]
+            for road in road_set:
+                adjoin_cols = adj_map[road]
+                if len(adjoin_cols):
+                    train_df = pd.DataFrame()
+                    dire_lst = road_direction_dct[road]  # 先纵向扩充df
+                    for dire in dire_lst:
+                        train_df_next = train_flow_x[adjoin_cols]
+                        train_df_next.columns = list(i[1:] for i in train_df_next.columns)  # 新的单索引列名，防止报错
+                        train_df_next['direction'] = [dire] * len(train_df_next)
+                        train_df_next['y'] = train_flow_y[('flow', dire, road)].values
+                        train_df = pd.concat((train_df, train_df_next), axis=0)
+                    train_df = pd.concat((train_df, pd.get_dummies(train_df['direction'])), axis=1)\
+                        .drop(columns='direction')  # 再将每个方向作为一列（哑编码）
+                    return train_df
+
+
         else:
             flow_data.set_index(['timestamp', 'crossroadID'], inplace=True)
-        flow_data = flow_data.unstack()
-        flow_data.drop(columns=flow_data.columns ^ (flow_data.columns & adj_map.keys()), inplace=True)
-        for key, values in adj_map.items():  # 缩小邻接表， 邻接卡口仅保留数据集出现的
-            adj_map[key] = flow_data.columns & values
-        for col in flow_data.columns:
-            flow_data_nn = flow_data[flow_data[col].notna()]  # 去除空值
-            if len(adj_map[col]):
-                mean_flow = flow_data_nn[adj_map[col]].mean(axis=1).dropna()
-                data_dct['crossroadID'].extend(col[1] for _ in range(len(mean_flow)))
-                data_dct['mean_flow'].extend(mean_flow)
-                data_dct['flow'].extend(flow_data_nn.loc[mean_flow.index, col])
-                if self.prp.term:  # 复赛情况
-                    for ts, dire in mean_flow.index:
-                        data_dct['direction'].append(dire)
-                        data_dct['timestamp'].append(ts)
-                else:
-                    data_dct['timestamp'].extend(mean_flow.index)
+        if self.prp.term:
+            for col in flow_data.columns:
+                flow_data_nn = flow_data[flow_data[col].notna()]  # 去除空值
+                if len(adj_map[col]):
+                    mean_flow = flow_data_nn[adj_map[col]].mean(axis=1).dropna()
+                    data_dct['crossroadID'].extend(col[1] for _ in range(len(mean_flow)))
+                    data_dct['mean_flow'].extend(mean_flow)
+                    data_dct['flow'].extend(flow_data_nn.loc[mean_flow.index, col])
+                    if self.prp.term:  # 复赛情况
+                        for ts, dire in mean_flow.index:
+                            data_dct['direction'].append(dire)
+                            data_dct['timestamp'].append(ts)
+                    else:
+                        data_dct['timestamp'].extend(mean_flow.index)
         # 获取测试集合
         if self.prp.term:
             test_df = self.prp.get_submit()[['crossroadID', 'direction', 'timeBegin', 'date']]

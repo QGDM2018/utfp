@@ -34,3 +34,17 @@ timestamp direction												->
    # None是空,不算它
    ```
 
+#### 邻接数据集
+提取卡口某一时刻各个方向的流量(flow) 和其邻接卡口流量的各个方向的流量（X）
+
+```python
+crossroadID, timestamp, flow -> (road1, direciont1), (road2, directino2), direction, flow
+
+```
+
+
+选择：
+
+1. pd.DataFrame.append
+
+2. pd.concate
