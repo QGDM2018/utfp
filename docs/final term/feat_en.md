@@ -39,7 +39,6 @@ timestamp direction												->
 
 ```python
 crossroadID, timestamp, flow -> (road1, direciont1), (road2, directino2), direction, flow
-
 ```
 
 

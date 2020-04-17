@@ -1,9 +1,7 @@
 import numpy as np
 import pandas as pd
-from pre_process.pre_process import get_adj_map, PreProcessor, freeze_support, Pool
+from pre_process.pre_process import get_adj_map, PreProcessor
 import datetime
-import tqdm
-import time
 from sklearn.metrics.pairwise import cosine_similarity
 from pre_process.pre_process import get_trainroad_adjoin, get_testroad_adjoin
 
@@ -29,10 +27,10 @@ class FeatureEn:
 
     def extract_adjoin_by_col(self):
         '''某时段内路口流量为特征，其邻接路口为目标值,构建训练集和测试集（按列遍历，很快）'''
-        # 读取数据集, 构建邻接表
-        flow_data = self.prp.load_buffer()
-        road_set = set(flow_data['crossroadID'])
         if self.prp.term:  # 复赛情况
+            # 加载数据集
+            flow_data = self.prp.load_buffer()  # 训练集
+            road_set = set(flow_data['crossroadID'])
             # 构建邻接表
             road_direction_dct = {}  # 用于构建邻接表
             for road in road_set:
@@ -40,75 +38,58 @@ class FeatureEn:
             adj_map = {}  # {road: {'adjoin': [('flow', 'roadID', 'direction')], 'self':[]}}
             for road in road_set:
                 adjoin_set = set(self.adj_map[road]) & road_set
-                adj_map[road] = []
+                adj_map[road] = set()
                 for adjoin in adjoin_set:
-                    adj_map[road].extend(('flow', dire, road) for dire in road_direction_dct[adjoin])
+                    adj_map[road].update(('flow', dire, road) for dire in road_direction_dct[adjoin])
             flow_data.set_index(['timestamp', 'crossroadID', 'direction'], inplace=True)
             flow_data = flow_data.unstack().unstack()  # 重建列的索引
             # flow_data.drop(columns=flow_data.columns ^ (flow_data.columns & adj_map.keys()), inplace=True)
+            # 获取训练集
             train_index = flow_data.index < '2019-09-22 07:00:00'
             train_flow = flow_data[train_index]  # 划分数据集, 训练集
-            test_df = flow_data[~train_index]  # 测试集
-            # 根据邻接表提取 训练集(X, direction, flow)
-            train_x_index = train_flow.index[train_flow.index < '2019-09-21 18:30:00']
+            train_x_index = train_flow.index[train_flow.index < '2019-09-21 18:30:00']  # 训练集特征索引
             train_y_index = (pd.to_datetime(train_x_index) + datetime.timedelta(minutes=30)
                              ).map(lambda x: str(x)) & flow_data.index
+            train_x_index &= (pd.to_datetime(train_y_index) - datetime.timedelta(minutes=30)
+                              ).map(lambda x: str(x))  # 训练集目标值索引
             train_flow_x = train_flow.loc[train_x_index]
             train_flow_y = train_flow.loc[train_y_index]
+            # 获取测试集索引
+            test_flow = flow_data[~train_index]
+            submit_data = self.prp.get_submit()
+            test_index_y = submit_data['timestamp'].unique()
+            test_index_x = (pd.to_datetime(test_index_y) - datetime.timedelta(minutes=30)
+                            ).map(lambda x: str(x)) & flow_data.index  # 测试索引
+            test_flow = test_flow.loc[test_index_x]  # 测试集
             for road in road_set:
                 adjoin_cols = adj_map[road]
                 if len(adjoin_cols):
+                    # 根据邻接表提取 训练集(X, direction, flow)
                     train_df = pd.DataFrame()
-                    dire_lst = road_direction_dct[road]  # 先纵向扩充df
-                    for dire in dire_lst:
+                    x_cloumns = list(i[1:] for i in adjoin_cols)  # 新的单索引列名，防止报错
+                    for dire in road_direction_dct[road]:  # 先纵向扩充df
                         train_df_next = train_flow_x[adjoin_cols]
-                        train_df_next.columns = list(i[1:] for i in train_df_next.columns)  # 新的单索引列名，防止报错
+                        train_df_next.columns = x_cloumns
                         train_df_next['direction'] = [dire] * len(train_df_next)
                         train_df_next['y'] = train_flow_y[('flow', dire, road)].values
-                        train_df = pd.concat((train_df, train_df_next), axis=0)
-                    train_df = pd.concat((train_df, pd.get_dummies(train_df['direction'])), axis=1)\
-                        .drop(columns='direction')  # 再将每个方向作为一列（哑编码）
-                    return train_df
-
-
-        else:
-            flow_data.set_index(['timestamp', 'crossroadID'], inplace=True)
-        if self.prp.term:
-            for col in flow_data.columns:
-                flow_data_nn = flow_data[flow_data[col].notna()]  # 去除空值
-                if len(adj_map[col]):
-                    mean_flow = flow_data_nn[adj_map[col]].mean(axis=1).dropna()
-                    data_dct['crossroadID'].extend(col[1] for _ in range(len(mean_flow)))
-                    data_dct['mean_flow'].extend(mean_flow)
-                    data_dct['flow'].extend(flow_data_nn.loc[mean_flow.index, col])
-                    if self.prp.term:  # 复赛情况
-                        for ts, dire in mean_flow.index:
-                            data_dct['direction'].append(dire)
-                            data_dct['timestamp'].append(ts)
-                    else:
-                        data_dct['timestamp'].extend(mean_flow.index)
-        # 获取测试集合
-        if self.prp.term:
-            test_df = self.prp.get_submit()[['crossroadID', 'direction', 'timeBegin', 'date']]
-            test_df['timestamp'] = test_df[['timeBegin', 'date']].apply(
-                lambda x: f'2019-{x["date"]} {x["timeBegin"].rjust(5, "0")}:00', axis=1)
-            test_df.set_index(['timestamp', 'direction'], inplace=True)
-        else:
-            test_df = self.prp.get_submit()[['crossroadID', 'timeBegin', 'date']]
-            test_df['timestamp'] = test_df[['timeBegin', 'date']].apply(
-                lambda x: f'2019-08-{x["date"]} {x["timeBegin"].rjust(5, "0")}:00', axis=1)
-            test_df.set_index('timestamp', inplace=True)
-        return test_df, flow_data
-        ts_index = test_df['timestamp'].unique()
-        return ts_index, flow_data.index
-        for road, indexes in test_df.groupby('crossroadID'):
-            if ('flow', road) in adj_map:
-                return ts_index, flow_data
-                test_df.loc[indexes, 'mean_flow'] = flow_data.loc[ts_index, adj_map[('flow', road)]].mean(axis=1)
-            else:
-                test_df.loc[indexes, 'mean_flow'] = list(0 for _ in range(len(indexes)))
-        # 邻接关系
-        return pd.DataFrame(data_dct), test_df
+                        train_df = pd.concat((train_df, train_df_next[train_df_next['y'].notna()]), axis=0)
+                    train_df = pd.concat((train_df, pd.get_dummies(train_df['direction'])), axis=1)  # 再将每个方向作为一列（哑编码）
+                    # 根据邻接表提取  (X, direction, flow)
+                    test_df = pd.DataFrame()
+                    for dire in road_direction_dct[road]:  # 先纵向扩充df
+                        test_df_next = test_flow[adjoin_cols]
+                        test_df_next.columns = x_cloumns
+                        test_df_next.index = test_index_y
+                        test_df_next['direction'] = [dire] * len(test_df_next)
+                        test_df = pd.concat((test_df, test_df_next), axis=0)
+                    test_df = pd.concat((test_df, pd.get_dummies(test_df['direction'])), axis=1)  # 再将每个方向作为一列（哑编码）
+                    # 去除空的列
+                    for df in (train_df, test_df):
+                        na_index = df.isna().sum(axis=0)
+                        for col in na_index[na_index == len(df)].index:  #
+                            train_df.drop(columns=col, inplace=True)
+                            test_df.drop(columns=col, inplace=True)
+                    yield road, train_df, test_df
 
     def similarity_matrix(self):
         '''
@@ -143,17 +124,6 @@ class FeatureEn:
             tdf = pd.DataFrame(timelist, columns=["timestamp"])     # 生成时间戳df
             tdf.to_csv("./data/tdf.csv")
             for i in train_mapping[key][:]:     # 相邻卡口
-                # if train[train["crossroadID"] == i]["direction"].tolist():  # 若非空,存在a里面
-                #     mean = np.array(train[train["crossroadID"] == i]["direction"].tolist()).mean(axis=0)
-                #     mean = [int(round(x)) for x in mean[:]]
-                #     input(mean)
-                #     result = pd.merge(tdf, train[train["crossroadID"] == i], on='timestamp', how="left").drop("crossroadID", axis=1)
-                #     result_ = []
-                #     for y in result.fillna(str(mean))["direction"].tolist():
-                #         if type(y) is str:
-                #             y = eval(y)
-                #         result_.append(y)
-                #
                 result_ = get_something(i, train, tdf)
                 if result_:
                     a.append(result_)
@@ -247,5 +217,3 @@ def get_something(i, train, tdf):
                 y = eval(y)
             b.append(y)
     return b
-
-

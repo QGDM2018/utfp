@@ -1,12 +1,9 @@
-from pre_process.pre_process import PreProcessor
-import pre_process
 import matplotlib.pyplot as plt
 plt.rcParams['font.sans-serif'] = ['Simhei']
 plt.rcParams['axes.unicode_minus'] = False
 import warnings
 warnings.filterwarnings('ignore')
-from datetime import datetime, timedelta
-import matplotlib.pyplot as plt
+from datetime import timedelta
 from statsmodels.tsa.arima_model import ARIMA
 import numpy as np
 import warnings
@@ -16,7 +13,7 @@ warnings.filterwarnings('ignore')
 
 
 class ModeDecomp(object):
-    def __init__(self, dataSet, test_data, test_size = 24):
+    def __init__(self, dataSet, test_data, test_size=24):
         data = dataSet.set_index('timestamp')
         data.index = pd.to_datetime(data.index)
         self.dataSet = data
@@ -77,13 +74,10 @@ class ModeDecomp(object):
         :return:
         """
         n = self.test_size
-
-        self.pred_time_index = pd.date_range(start=self.train.index[-1], periods = n+1, freq='5min')[1:]
+        self.pred_time_index = pd.date_range(start=self.train.index[-1], periods=n+1, freq='5min')[1:]
         self.trend_pred = self.trend_model_.forecast(n)[0]
         pred_time_index = self.add_season()
         return pred_time_index
-
-
 
     def add_season(self):
         '''
@@ -111,19 +105,18 @@ class ModeDecomp(object):
         self.final_pred = pd.Series(values, index=self.pred_time_index, name='predict')
         self.low_conf = pd.Series(low_conf_values, index=self.pred_time_index, name='low_conf')
         self.high_conf = pd.Series(high_conf_values, index=self.pred_time_index, name='high_conf')
-
         return self.pred_time_index
 
 
 def predict(X):
     dataSet = X[:-144]
     # input(len(dataSet))
-    a = 288 * 4
+    a = 144 * 4
     test_data = np.zeros(a)
     test_data = pd.DataFrame(test_data, columns=['flow'])
     data = pd.DataFrame(dataSet.values, columns=['flow'])
     data['timestamp'] = dataSet.index
-    size = 288 * 4
+    size = 144 * 4
     mode = ModeDecomp(data, test_data, test_size=size)
     mode.decomp(size)
     for lis in [[3, 1, 3], [1, 2, 3], [5, 2, 3], [1, 1, 2], [3, 1, 4], [0, 0, 1]]:
@@ -173,19 +166,3 @@ def create_test_data():
         pred_flow = pred_data.loc[pred_data['timestamp'] == search_time]['flow'].values[0]
         test_data.iloc[[i]]['value'] = pred_flow
         pred_flow = pred_data[search_time]['flow']
-
-
-# # 画图
-# if __name__ == '__main__':
-#     day = 3
-#     prp = PreProcessor()
-#     preMapping = pre_process.saving(prp)
-#     print(preMapping)
-#     for pre_id in preMapping.keys():
-#         try:
-#             instand_id = preMapping[pre_id]
-#             pred = predict(instand_id)
-#             store_data(pred, pre_id)
-#         except:
-#             continue
-

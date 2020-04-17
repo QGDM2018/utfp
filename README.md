@@ -24,10 +24,10 @@
     + test_user
     + train
     
-  + tmp
+  + submit
   
-    + first
-    + final
+    + 0_submit.csv  # 初赛提交实例
+    + 1_submit.csv  # 复赛提交实例
   
     
 
@@ -35,6 +35,7 @@
 
 ```python
 # 由于相对路径问题，需要在项目根目录调用，如runex.py
+from pre_process.pre_process import PreProcessor
 term = 'final'  # 初赛:first；复赛：final
 process_num = 2  # 进程数量
 PreProcessor(term).dump_buffer(process_num)
@@ -44,3 +45,13 @@ PreProcessor(term).dump_buffer(process_num)
 # 复赛数据: ./data/1_flow_data.csv  ['crossroadID', 'direction', 'timestamp', 'flow']
 ```
 
+
+
+#### 文档说明
+
+​	比赛时的讨论记录、问题、总结都放在docs文件夹
+
++ docs
+  + final term：初赛记录
+  + first term： 复赛记录
+  + summary： 总结

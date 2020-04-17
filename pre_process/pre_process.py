@@ -1,12 +1,11 @@
 import pandas as pd
 import csv
-import json
 import numpy as np
 import datetime
 from datetime import timedelta
 from multiprocessing.pool import Pool
 from multiprocessing import freeze_support
-from sklearn.model_selection import train_test_split
+import tqdm
 
 "20、21、23天，卡口100306缺失"
 # 目录：训练集、测试集、缓存数据；如何设置根目录？
@@ -37,22 +36,11 @@ class PreProcessor:
     def __init__(self, term='first'):
         self.term = 0 if term == 'first' else 1
         self.flow_path_lst = []
-        try:
-            with open(f'./data/{self.term}_buffer.json', 'r', encoding='utf-8') as f:
-                self.buffer = json.load(f)
-        except:
-            self.buffer = {'sCrossroadID': list(set(self.load_data(3)['crossroadID']))}  # 第一天的roadid
-        self.flow_data = None  # 流量数据
+        self.flow_data, self.time_flow = None, None  # 流量数据
         self.train = None  # 训练数据
         self.train_x = None
         self.train_y = None
         self.test_x = None
-        self.f = open(f'./data/{self.term}_buffer.json', 'w', encoding='utf-8')
-
-    def __del__(self):
-        # 保存缓存数据
-        with open(f'./data/{self.term}_buffer.json', 'w', encoding='utf-8') as f:
-            json.dump(self.buffer, f)
 
     def load_data(self, i):
         '''从文件夹中载入csv表格'''
@@ -81,7 +69,7 @@ class PreProcessor:
         '''计算流量'''
         flow_dfx = self.load_data(i)
         flow_dfx['timestamp'] = pd.to_datetime(flow_dfx['timestamp'])  # str To TimeStamp
-        flow_dfx['timestamp'] = flow_dfx['timestamp'].apply(round_minutes, n=5)  # 时间离散化，每五分钟
+        flow_dfx['timestamp'] = flow_dfx['timestamp'].apply(round_minutes, n=15)  # 时间离散化，每五分钟
         flow_lst = []  # [[road, timestamp, flow]]  [[road, timestamp, flow]]
         if not self.term:
             for road, df in flow_dfx.groupby('crossroadID'):  # 按路口分组
@@ -104,27 +92,8 @@ class PreProcessor:
             handler.writerow(path_dct['columns'][self.term])
             for flow_lst in pool.map(self.cal_flow, path_dct['day_list'][self.term]):
                 handler.writerows(flow_lst)
-
-    def get_timeflow(self):
-        '''获取单个时段各个路口车流量数据
-        :param i:
-        :return: dfFlow: 原始数据
-                dFlow: { t : pd.Series([road1_flow, road2_flow])}
-        '''
-        flow_data = self.load_buffer()
-        if self.term:
-            flow_data.set_index(['timestamp', 'direction', 'crossroadID'], inplace=True)
-            return flow_data.unstack()
-        # flow_dct = {}  #
-        # return flow_dct
-
-    def get_roadflow_by_day(self, i):
-        '''获取单个路口各个时段车流量数据
-        :param i:天数
-        :return: dFlow: {crossroadID:pd.Series} 车流量时序数据
-        '''
-        flow_dct = {}  # {crossroadID: pd.Series}
-        return flow_dct
+            # for i in path_dct['day_list'][self.term]:
+            #     handler.writerows(self.cal_flow(i))
 
     def get_roadflow_alltheday(self):
         '''获取训练集中各个路口个个方向的车流量,用于预测相似度
@@ -150,11 +119,19 @@ class PreProcessor:
         :return:
         '''
         flow_data = self.load_buffer()
+        flow_data = flow_data.set_index('timestamp')
         roadflow_df = flow_data[flow_data['crossroadID'] == roadid]
-        return pd.Series(roadflow_df['flow'].values, index=roadflow_df['timestamp'])
+        if self.term:
+            for dire, df in roadflow_df.groupby('direction'):
+                yield dire, pd.Series(df['flow'])
+        else:
+            yield None, pd.Series(roadflow_df['flow'])
 
     def get_submit(self):
-        return pd.read_csv(f'./data/submit/{self.term}_submit.csv')
+        submit = pd.read_csv(f'./data/submit/{self.term}_submit.csv')
+        submit['timestamp'] = submit[['timeBegin', 'date']].apply(
+            lambda x: f'2019-{x["date"]} {x["timeBegin"].rjust(5, "0")}:00', axis=1)
+        return submit
 
     def roadid_nums(self):
         '''查看各天的记录roadid数量'''
@@ -167,6 +144,53 @@ class PreProcessor:
             ids = set(self.load_data(d)['crossroadID'])
             data.append((len(ids), ids))
         return data
+
+    def fill_na(self):
+        if self.term:
+            flow_data = self.load_buffer()
+            cur_day = datetime.datetime(2019, 9, 1, 7)
+            unit_day = datetime.timedelta(days=1)
+            five_minutes = datetime.timedelta(minutes=5)
+            thirty_minutes = datetime.timedelta(minutes=30)
+            train_ts = []
+            for _ in range(21):
+                cur_time = cur_day
+                for _ in range(144):
+                    train_ts.append(str(cur_time))
+                    cur_time += five_minutes
+                cur_day += unit_day
+            test_ts = []
+            for _ in range(4):
+                cur_time = cur_day
+                for i in range(1, 73):
+                    test_ts.append(str(cur_time))
+                    if i % 6 == 0:
+                        cur_time += thirty_minutes
+                    cur_time += five_minutes
+                cur_day += unit_day
+            ts_set_list = set(train_ts), set(test_ts)
+            # 32
+            flow_data_with_na = pd.DataFrame()
+            for road, road_df in tqdm.tqdm(flow_data.groupby('crossroadID')):
+                dire_lst = road_df['direction'].unique()
+                data_list = []
+                for ts_set in ts_set_list:
+                    for ts in ts_set ^ (ts_set & set(road_df['timestamp'])):
+                        # print(len(ts_set), len(set(road_df['timestamp'])), len(ts_set ^ (ts_set & set(road_df['timestamp']))))
+                        # return ts_set,  set(road_df['timestamp'])
+                        for dire in dire_lst:
+                            data_list.append([road, dire, ts, 0])
+                            # flow_data.loc[cur_index] = [road, dire, ts, 0]
+                flow_data_with_na = pd.concat(
+                    (flow_data_with_na, pd.DataFrame(data_list, columns=['crossroadID', 'direction', 'timestamp', 'flow']))
+                    , axis=0, ignore_index=True)
+            flow_data_with_na = pd.concat((flow_data_with_na, flow_data), axis=0, ignore_index=True)
+            flow_data_with_na.to_csv("./data/flow_data_with_na.csv", index=False)  # 3783710; 4814894
+            return flow_data_with_na
+        # b = a[a.crossroadID == 100002]
+        # b = b[b.direction == 1].timestamp.values
+        # b.sort()
+        # print(b[-200:])
 
     # 获取训练集的样子
     def get_train_data(self):
@@ -207,26 +231,24 @@ class PreProcessor:
 # 获取测试卡口的相邻卡口
 def get_testroad_adjoin(prp):
     # 邻接表,无去重
-    mapping = {}
-    df = pd.read_csv('data/first/trainCrossroadFlow/roadnet.csv')
-    for arr in df.values:
-        h, t = arr[0], arr[1]
-        mapping[h] = mapping.get(h, []) + [t]
-        mapping[t] = mapping.get(t, []) + [h]
+    mapping = get_adj_map()
     # 获取第一个邻接节点
-    # 更新成最新要预测的路口信息，final
-    sPredRoad = set(pd.read_csv('data/final/submit_example.csv')['crossroadID'])  # 要预测的路口
+    sPredRoad = set(prp.get_submit()['crossroadID'])  # 要预测的路口
     predMapping = {}
-    # available代表不用预测的可用的卡口。
-    available = set(prp.buffer['sCrossroadID']) ^ (sPredRoad & set(prp.buffer['sCrossroadID']))  # 邻接节点的卡口为测试集中的卡口。
+    # available 只在训练集出现的邻接卡口
+    available = set(prp.load_buffer()['crossroadID']) ^ (sPredRoad & set(prp.load_buffer()['crossroadID']))
     for r in sPredRoad:  # 要预测的每一个卡口
         vs = mapping.get(r)  # 邻接表中每一个键（卡口），返回键的值-->即邻接卡口
         if vs is not None:
             adj_set = set(vs)
             bind = adj_set & available
             if bind:
-                predMapping[r] = bind  # 保留在训练集中出现过的卡口
+                predMapping[r] = bind.pop()  # 保留在训练集中出现过的卡口
     rest = sPredRoad ^ predMapping.keys()  # 不出现在训练集中的卡口，随机找相邻
+    for r in rest:      # 空值处理
+        predMapping[r] = None
+    return predMapping
+    # return rest, predMapping
     # 训练集的数据
     length = len(rest)
     while True:
@@ -241,7 +263,8 @@ def get_testroad_adjoin(prp):
     candi = list(predMapping.values())[0]
     for roadid in rest:
         predMapping[roadid] = candi
-    return predMapping, mapping
+
+    return predMapping
 
 
 def get_trainroad_adjoin(premap, map):
@@ -273,3 +296,30 @@ def get_adj_map():
         else:
             adj_map[t] = {h}
     return adj_map
+
+
+def get_testroad_adjoin_lr(prp):
+    # 邻接表,无去重
+    mapping = get_adj_map()
+    # 获取第一个邻接节点
+    sPredRoad = set(prp.get_submit()['crossroadID'])  # 要预测的路口
+    predMapping = {}
+    # available 只在训练集出现的邻接卡口
+    available = {100097, 100354, 100355, 100227, 100359, 100360, 100105, 100237, 100117, 100118, 100375, 100377, 100378, 100252,
+    100381, 100382, 100388, 100389, 100134, 100007, 100264, 100137, 100145, 100222, 100152, 100153, 100283, 100284,
+    100157, 100030, 100031, 100158, 100160, 100161, 100291, 100036, 100295, 100045, 100303, 100176, 100306, 100051,
+    100052, 100181, 100056, 100057, 100058, 100319, 100578, 100452, 100453, 100326, 100327, 100331, 100332, 100077,
+    100205, 100208, 100209, 100211, 100213, 100472, 100094}
+    for r in sPredRoad:  # 要预测的每一个卡口
+        queue = list(mapping.get(r, [])).copy()
+        while queue:
+            cur = queue.pop(0)
+            if cur in available:
+                predMapping[r] = cur  # 保留在训练集中出现过的卡口
+                break
+            else:
+                queue.extend(mapping.get(cur, []))
+    rest = sPredRoad ^ predMapping.keys()  # 不出现在训练集中的卡口，随机找相邻
+    for r in rest:      # 空值处理
+        predMapping[r] = None
+    return predMapping
